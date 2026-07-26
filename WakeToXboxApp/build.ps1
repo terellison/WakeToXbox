@@ -1,3 +1,9 @@
+# Pass -CertThumbprint to Authenticode-sign the output; omit it for an unsigned build.
+param(
+    [string]$CertThumbprint,
+    [string]$TimestampUrl = 'http://timestamp.digicert.com'
+)
+
 $ErrorActionPreference = 'Stop'
 
 $src = $PSScriptRoot
@@ -95,3 +101,15 @@ Write-Host "Generated $ico ($($sizes -join ', ') px)"
 
 if ($LASTEXITCODE -ne 0) { throw "csc failed with exit code $LASTEXITCODE" }
 Write-Host "Built $out"
+
+if ($CertThumbprint) {
+    $cert = Get-ChildItem Cert:\CurrentUser\My, Cert:\LocalMachine\My -CodeSigningCert |
+        Where-Object Thumbprint -eq $CertThumbprint | Select-Object -First 1
+    if (-not $cert) { throw "No code-signing cert with thumbprint $CertThumbprint in CurrentUser\My or LocalMachine\My" }
+
+    $signArgs = @{ FilePath = $out; Certificate = $cert; HashAlgorithm = 'SHA256' }
+    if ($TimestampUrl) { $signArgs.TimestampServer = $TimestampUrl }
+    $sig = Set-AuthenticodeSignature @signArgs
+    if ($sig.Status -ne 'Valid') { throw "Signing failed: $($sig.Status) - $($sig.StatusMessage)" }
+    Write-Host "Signed $out ($($cert.Subject))"
+}
